@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { slotsAPI, doctorsAPI, tokensAPI } from '../services/api';
+import { slotsAPI, doctorsAPI, tokensAPI, simulationAPI } from '../services/api';
 
 function Slots() {
   const [slots, setSlots] = useState([]);
@@ -10,6 +10,8 @@ function Slots() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [slotTokens, setSlotTokens] = useState({});
+  const [apiConnected, setApiConnected] = useState(true);
+  const [quickSetupLoading, setQuickSetupLoading] = useState(false);
 
   useEffect(() => {
     loadDoctors();
@@ -23,18 +25,22 @@ function Slots() {
     try {
       const res = await doctorsAPI.getAll();
       setDoctors(res.data.data || []);
+      setApiConnected(true);
     } catch (error) {
       console.error('Failed to load doctors:', error);
+      setApiConnected(false);
     }
   };
 
   const loadSlots = async () => {
     try {
       setLoading(true);
+      setError('');
       const params = { date: selectedDate };
       if (selectedDoctor) params.doctorId = selectedDoctor;
       const res = await slotsAPI.getAll(params);
       setSlots(res.data.data || []);
+      setApiConnected(true);
       
       // Load token counts for each slot
       const tokenCounts = {};
@@ -57,6 +63,7 @@ function Slots() {
       setSlotTokens(tokenCounts);
     } catch (error) {
       setError('Failed to load slots: ' + (error.response?.data?.error || error.message));
+      setApiConnected(false);
     } finally {
       setLoading(false);
     }
@@ -71,8 +78,25 @@ function Slots() {
       await slotsAPI.generate(data);
       setSuccess('Slots generated successfully!');
       loadSlots();
+      loadDoctors();
     } catch (error) {
       setError('Failed to generate slots: ' + (error.response?.data?.error || error.message));
+    }
+  };
+
+  const handleQuickSetup = async () => {
+    setError('');
+    setSuccess('');
+    setQuickSetupLoading(true);
+    try {
+      await simulationAPI.run({ date: selectedDate });
+      setSuccess('Quick setup complete! Created 3 doctors, generated slots, and sample tokens.');
+      loadDoctors();
+      loadSlots();
+    } catch (error) {
+      setError('Quick setup failed: ' + (error.response?.data?.error || error.message));
+    } finally {
+      setQuickSetupLoading(false);
     }
   };
 
@@ -86,8 +110,31 @@ function Slots() {
         <h2>Slots</h2>
       </div>
 
+      {!apiConnected && (
+        <div className="alert alert-error">
+          Cannot connect to backend. Ensure backend is running at {process.env.REACT_APP_API_URL || 'http://localhost:5000'}
+        </div>
+      )}
       {error && <div className="alert alert-error">{error}</div>}
       {success && <div className="alert alert-success">{success}</div>}
+
+      {(doctors.length === 0 || slots.length === 0) && (
+        <div className="card" style={{ background: '#e7f3ff', borderLeft: '4px solid #007bff' }}>
+          <h3 style={{ marginBottom: '10px' }}>No slots yet?</h3>
+          <p style={{ marginBottom: '15px' }}>
+            {doctors.length === 0
+              ? 'Create doctors first (from Doctors page), or run Quick Setup to create 3 sample doctors with slots.'
+              : 'Click "Generate Slots" for the selected date, or run Quick Setup to create doctors + slots + sample tokens.'}
+          </p>
+          <button
+            className="btn btn-success"
+            onClick={handleQuickSetup}
+            disabled={quickSetupLoading}
+          >
+            {quickSetupLoading ? 'Running...' : 'Quick Setup (Create Doctors + Slots)'}
+          </button>
+        </div>
+      )}
 
       <div className="card">
         <div style={{ display: 'flex', gap: '15px', marginBottom: '20px', flexWrap: 'wrap', alignItems: 'center' }}>
@@ -135,7 +182,9 @@ function Slots() {
           <tbody>
             {slots.length === 0 ? (
               <tr>
-                <td colSpan="7" style={{ textAlign: 'center' }}>No slots found. Generate slots for the selected date.</td>
+                <td colSpan="7" style={{ textAlign: 'center', padding: '30px' }}>
+                  No slots for {selectedDate}. {doctors.length === 0 ? 'Run Quick Setup above to create doctors and slots.' : 'Click "Generate Slots" above.'}
+                </td>
               </tr>
             ) : (
               slots.map((slot) => {
